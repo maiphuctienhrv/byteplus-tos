@@ -1,0 +1,5 @@
+
+byteplus-tos
+=====
+docker build -t byteplus-tos .
+docker run --env-file .env -p 8000:8000 byteplus-tos
