@@ -1,14 +1,42 @@
 
 import os
 import re
+from datetime import datetime
 from fastapi import FastAPI, Request, Body, Header, HTTPException
 from fastapi.responses import JSONResponse, Response
 from dotenv import load_dotenv
 import tos
+from pymongo import MongoClient, ASCENDING, DESCENDING
 
 load_dotenv()
 
 app = FastAPI()
+
+# MongoDB setup
+mongodb_uri = os.getenv("MONGODB_URI")
+mongodb_database = os.getenv("MONGODB_DATABASE")
+
+mongodb_client = None
+db = None
+files_collection = None
+
+if mongodb_uri and mongodb_database:
+    try:
+        mongodb_client = MongoClient(mongodb_uri)
+        db = mongodb_client[mongodb_database]
+        files_collection = db.files
+        
+        # Create indexes for MongoDB 4.4+
+        # Note: In MongoDB 4.4+, the 'background' option is deprecated and ignored
+        # Index builds use a hybrid approach by default
+        files_collection.create_index([("key", ASCENDING)])
+        files_collection.create_index([("created_at", DESCENDING)])
+        files_collection.create_index([("operation", ASCENDING)])
+        files_collection.create_index([("key", ASCENDING), ("operation", ASCENDING)])
+    except Exception as e:
+        print(f"MongoDB connection warning: {e}")
+        # Continue without MongoDB if connection fails
+        mongodb_client = None
 
 client = tos.TosClientV2(
     ak=os.getenv("BYTEPLUS_ACCESS_KEY"),
@@ -61,6 +89,20 @@ async def upload_binary(
         scheme = request.url.scheme
         host = request.headers.get("host", "localhost")
         url = f"{scheme}://{host}/{key}"
+        
+        # Log to MongoDB if available
+        if files_collection is not None:
+            try:
+                files_collection.insert_one({
+                    "key": key,
+                    "operation": "upload",
+                    "size": len(body),
+                    "created_at": datetime.utcnow(),
+                    "url": url
+                })
+            except Exception as mongo_error:
+                print(f"MongoDB logging error: {mongo_error}")
+        
         response = JSONResponse(content={"url": url})
         response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Cache-Control"] = "public, max-age=31536000"
@@ -93,6 +135,21 @@ def get_image(path: str, request: Request):
     try:
         obj = client.get_object(bucket=BUCKET, key=tos_key)
         content = obj.read()
+        
+        # Log to MongoDB if available
+        if files_collection is not None:
+            try:
+                files_collection.insert_one({
+                    "key": tos_key,
+                    "requested_key": key,
+                    "operation": "download",
+                    "size": len(content),
+                    "created_at": datetime.utcnow(),
+                    "content_type": obj.content_type
+                })
+            except Exception as mongo_error:
+                print(f"MongoDB logging error: {mongo_error}")
+        
         response = Response(content=content, media_type=obj.content_type)
         response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Cache-Control"] = "public, max-age=31536000"
@@ -117,6 +174,18 @@ async def delete_object(
     key = path.strip("/")
     try:
         client.delete_object(bucket=BUCKET, key=key)
+        
+        # Log to MongoDB if available
+        if files_collection is not None:
+            try:
+                files_collection.insert_one({
+                    "key": key,
+                    "operation": "delete",
+                    "created_at": datetime.utcnow()
+                })
+            except Exception as mongo_error:
+                print(f"MongoDB logging error: {mongo_error}")
+        
         response = JSONResponse(content={"deleted": key})
         response.headers["Access-Control-Allow-Origin"] = "*"
         return response
