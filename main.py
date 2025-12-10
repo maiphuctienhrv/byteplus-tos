@@ -23,6 +23,8 @@ files_collection = None
 if mongodb_uri and mongodb_database:
     try:
         mongodb_client = MongoClient(mongodb_uri)
+        # Test connection with ping
+        mongodb_client.admin.command('ping')
         db = mongodb_client[mongodb_database]
         files_collection = db.files
         
@@ -40,6 +42,8 @@ if mongodb_uri and mongodb_database:
         print(f"MongoDB connection warning: {e}")
         # Continue without MongoDB if connection fails
         mongodb_client = None
+        db = None
+        files_collection = None
 
 client = tos.TosClientV2(
     ak=os.getenv("BYTEPLUS_ACCESS_KEY"),

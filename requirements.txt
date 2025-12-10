@@ -3,4 +3,4 @@ uvicorn[standard]
 python-dotenv
 python-multipart
 tos
-pymongo
+pymongo>=4.0,<5.0
