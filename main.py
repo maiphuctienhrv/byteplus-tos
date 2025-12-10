@@ -1,12 +1,12 @@
 
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import FastAPI, Request, Body, Header, HTTPException
 from fastapi.responses import JSONResponse, Response
 from dotenv import load_dotenv
 import tos
-from pymongo import MongoClient, ASCENDING, DESCENDING
+from pymongo import MongoClient, ASCENDING, DESCENDING, IndexModel
 
 load_dotenv()
 
@@ -29,10 +29,13 @@ if mongodb_uri and mongodb_database:
         # Create indexes for MongoDB 4.4+
         # Note: In MongoDB 4.4+, the 'background' option is deprecated and ignored
         # Index builds use a hybrid approach by default
-        files_collection.create_index([("key", ASCENDING)])
-        files_collection.create_index([("created_at", DESCENDING)])
-        files_collection.create_index([("operation", ASCENDING)])
-        files_collection.create_index([("key", ASCENDING), ("operation", ASCENDING)])
+        indexes = [
+            IndexModel([("key", ASCENDING)]),
+            IndexModel([("created_at", DESCENDING)]),
+            IndexModel([("operation", ASCENDING)]),
+            IndexModel([("key", ASCENDING), ("operation", ASCENDING)])
+        ]
+        files_collection.create_indexes(indexes)
     except Exception as e:
         print(f"MongoDB connection warning: {e}")
         # Continue without MongoDB if connection fails
@@ -97,7 +100,7 @@ async def upload_binary(
                     "key": key,
                     "operation": "upload",
                     "size": len(body),
-                    "created_at": datetime.utcnow(),
+                    "created_at": datetime.now(timezone.utc),
                     "url": url
                 })
             except Exception as mongo_error:
@@ -144,7 +147,7 @@ def get_image(path: str, request: Request):
                     "requested_key": key,
                     "operation": "download",
                     "size": len(content),
-                    "created_at": datetime.utcnow(),
+                    "created_at": datetime.now(timezone.utc),
                     "content_type": obj.content_type
                 })
             except Exception as mongo_error:
@@ -181,7 +184,7 @@ async def delete_object(
                 files_collection.insert_one({
                     "key": key,
                     "operation": "delete",
-                    "created_at": datetime.utcnow()
+                    "created_at": datetime.now(timezone.utc)
                 })
             except Exception as mongo_error:
                 print(f"MongoDB logging error: {mongo_error}")
